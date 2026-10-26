@@ -53,6 +53,43 @@ curl localhost:8080/health    # {"status":"ok"}
 To build it yourself: `docker build -t odoo-ai-gateway .`, then mount your config at
 `/app/gateway.config.yaml` or set `ODOO_AI_GATEWAY_CONFIG`.
 
+### Configuration from environment variables
+
+Without a config file, the gateway builds its configuration from `GATEWAY_*` variables, so a
+server needs only an env file next to the image. A config file still wins when present
+(`ODOO_AI_GATEWAY_CONFIG`, or `gateway.config.yaml` / `.yml` / `.json` in the working directory);
+without one, `GATEWAY_ROUTE_DEFAULT` is required. [`gateway.env.example`](gateway.env.example)
+lists every variable with a working minimal example:
+
+```bash
+cp gateway.env.example gateway.env    # set the tokens, keys and base URLs
+docker run -d --name odoo-ai-gateway --env-file gateway.env -p 8080:8080 ghcr.io/kay-g2/odoo-ai-gateway
+```
+
+```yaml
+services:
+  gateway:
+    image: ghcr.io/kay-g2/odoo-ai-gateway:latest
+    restart: unless-stopped
+    env_file: gateway.env
+    ports:
+      - "8080:8080"
+    stop_grace_period: 25m
+```
+
+Each config field has its variable: `GATEWAY_PORT`, `GATEWAY_ACCOUNT_TOKENS` (comma-separated),
+`GATEWAY_PROVIDER_<NAME>_API_KEY` / `_BASE_URL` / `_HEADERS` (a provider exists only when its key
+is set), `GATEWAY_TIERS=fast,deep` with `GATEWAY_TIER_FAST` and `GATEWAY_TIER_DEEP`,
+`GATEWAY_ROUTE_DEFAULT`, `GATEWAY_ROUTE_AGENT`, one `GATEWAY_ROUTE_<ROUTE>` per route
+(`1/get_embeddings` → `GATEWAY_ROUTE_GET_EMBEDDINGS`), and `GATEWAY_USAGES` as one JSON object
+(usage keys such as `agent:ai_website.x` cannot be variable names). An entry is `provider:model`,
+`provider:model@effort` (split at the first `:`, so `openrouter:z-ai/glm-5.2` works), a tier name,
+or a JSON object such as `{"provider": "openai", "model": "bge-m3", "name": "text-embedding-3-small"}`.
+Empty variables count as unset. Validation errors name the variable next to the config path.
+
+In a YAML config, `${VAR}` values are strings; numeric and boolean fields accept them
+(`port: ${PORT}`, `allowAnyAccountToken: ${ALLOW_ANY}` with `true`/`false`, `1`/`0`, `yes`/`no`).
+
 ### Point Odoo at the gateway
 
 1. **Endpoint.** In *Settings → Technical → System Parameters*, set `ai.endpoint` to the gateway

@@ -6,6 +6,22 @@ export const effortSchema = z.enum(EFFORTS);
 export const providerNameSchema = z.enum(PROVIDER_NAMES);
 export const featureSchema = z.enum(FEATURES);
 
+/**
+ * `${VAR}` interpolation and the environment config always yield strings: these accept a numeric
+ * string for a number field, and true/false/1/0/yes/no for a boolean one. Anything else reaches the
+ * inner schema unchanged and fails with its usual message (no `z.coerce.boolean`: "false" is truthy).
+ */
+function numeric<T extends z.ZodType<number>>(schema: T) {
+  const toNumber = (value: unknown) => (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value)) ? Number(value) : value);
+  return z.preprocess(toNumber, schema) as unknown as z.ZodType<z.output<T>, z.input<T> | string>;
+}
+
+const BOOLEAN_STRINGS = new Map([["true", true], ["1", true], ["yes", true], ["false", false], ["0", false], ["no", false]]);
+function flag() {
+  const toBoolean = (value: unknown) => (typeof value === "string" ? (BOOLEAN_STRINGS.get(value.trim().toLowerCase()) ?? value) : value);
+  return z.preprocess(toBoolean, z.boolean()) as unknown as z.ZodType<boolean, boolean | string>;
+}
+
 /** A concrete provider + model (+ effort) choice. */
 export const targetSchema = z.strictObject({
   provider: providerNameSchema,
@@ -13,9 +29,9 @@ export const targetSchema = z.strictObject({
   effort: effortSchema.optional(),
   /** Public name for embedding models (what `1/get_default_embedding_model` returns). Defaults to `model`. */
   name: z.string().min(1).optional(),
-  maxOutputTokens: z.number().int().positive().optional(),
+  maxOutputTokens: numeric(z.number().int().positive()).optional(),
   /** Force a capability on/off for this entry (e.g. a new OpenRouter model). */
-  capabilities: z.partialRecord(featureSchema, z.boolean()).optional(),
+  capabilities: z.partialRecord(featureSchema, flag()).optional(),
   /**
    * Extra provider request fields merged into the upstream body, plus the keys the adapter reads
    * itself. Checked against the provider's declarations after parsing (`providers/options.ts`).
@@ -55,17 +71,17 @@ export const configSchema = z.strictObject({
   server: z
     .strictObject({
       host: z.string().default("0.0.0.0"),
-      port: z.number().int().min(1).max(65535).default(8080),
+      port: numeric(z.number().int().min(1).max(65535)).default(8080),
       /** Upper bound for a completion when Odoo does not send `timeout` (seconds). */
-      completionTimeoutSeconds: z.number().positive().default(300),
+      completionTimeoutSeconds: numeric(z.number().positive()).default(300),
       /**
        * Deadline for `1/get_completions_sync`: `call_odoo_ai` waits 60 s whatever `timeout` Odoo
        * puts in the params, so working longer only burns tokens nobody will read.
        */
-      syncTimeoutSeconds: z.number().positive().default(60),
+      syncTimeoutSeconds: numeric(z.number().positive()).default(60),
       /** Deadline for embeddings/transcription/realtime calls (seconds). */
-      requestTimeoutSeconds: z.number().positive().default(120),
-      maxBodyBytes: z.number().int().positive().default(64 * 1024 * 1024),
+      requestTimeoutSeconds: numeric(z.number().positive()).default(120),
+      maxBodyBytes: numeric(z.number().int().positive()).default(64 * 1024 * 1024),
     })
     .prefault({}),
   auth: z
@@ -76,7 +92,7 @@ export const configSchema = z.strictObject({
        */
       accountTokens: z.array(z.string().min(1)).default([]),
       /** Accept any (or no) account token. Only for local development. */
-      allowAnyAccountToken: z.boolean().default(false),
+      allowAnyAccountToken: flag().default(false),
       /** HMAC key for the realtime `iap_transaction_token`. Random per process when omitted. */
       transactionTokenSecret: z.string().min(16).optional(),
     })
@@ -84,10 +100,10 @@ export const configSchema = z.strictObject({
   webhook: z
     .strictObject({
       /** Attempts to deliver the postback; only failures that never reached Odoo are retried. */
-      maxAttempts: z.number().int().min(1).max(10).default(4),
-      initialBackoffMs: z.number().int().min(0).default(500),
+      maxAttempts: numeric(z.number().int().min(1).max(10)).default(4),
+      initialBackoffMs: numeric(z.number().int().min(0)).default(500),
       /** Odoo runs the tool batch inside the callback request (nested LLM calls): allow minutes. */
-      timeoutSeconds: z.number().positive().default(300),
+      timeoutSeconds: numeric(z.number().positive()).default(300),
       /** If set, only these hosts may be used as `webhook_url` (exact host or "*.example.com"). */
       allowedHosts: z.array(z.string().min(1)).optional(),
     })

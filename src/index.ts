@@ -1,30 +1,22 @@
 /**
  * Node entrypoint: `node dist/index.js` (or `npm run dev`).
- * Config path: $ODOO_AI_GATEWAY_CONFIG, else ./gateway.config.yaml / .yml / .json.
+ * Config path: $ODOO_AI_GATEWAY_CONFIG, else ./gateway.config.yaml / .yml / .json, else the
+ * GATEWAY_* environment variables (see gateway.env.example).
  */
 import { existsSync } from "node:fs";
 
 import { serve } from "@hono/node-server";
 
 import { createApp, VERSION } from "./app.js";
+import { configSource, loadConfigFromEnv } from "./config/env.js";
 import { loadConfigFile } from "./config/load.js";
 import { createHttpClient } from "./core/http-client.js";
 import { createJsonLogger, type LogLevel } from "./core/logger.js";
 import { createAdapters } from "./providers/index.js";
 
-function findConfig(): string {
-  const explicit = process.env.ODOO_AI_GATEWAY_CONFIG;
-  if (explicit) return explicit;
-  const candidate = ["gateway.config.yaml", "gateway.config.yml", "gateway.config.json"].find((file) => existsSync(file));
-  if (!candidate) {
-    throw new Error("No config found: set ODOO_AI_GATEWAY_CONFIG or create gateway.config.yaml (see gateway.config.example.yaml)");
-  }
-  return candidate;
-}
-
 const logger = createJsonLogger((process.env.LOG_LEVEL as LogLevel | undefined) ?? "info");
-const configPath = findConfig();
-const config = loadConfigFile(configPath);
+const source = configSource(process.env, existsSync);
+const config = "path" in source ? loadConfigFile(source.path) : loadConfigFromEnv();
 
 const http = createHttpClient(
   Math.max(config.server.completionTimeoutSeconds, config.server.requestTimeoutSeconds, config.webhook.timeoutSeconds),
@@ -36,7 +28,7 @@ const server = serve({ fetch: app.fetch, hostname: config.server.host, port: con
     version: VERSION,
     address: info.address,
     port: info.port,
-    config: configPath,
+    config: "path" in source ? source.path : "env",
     providers: Object.keys(config.providers),
   });
   if (config.auth.allowAnyAccountToken) logger.warn("auth.allowAnyAccountToken is enabled: any caller can use your provider keys");

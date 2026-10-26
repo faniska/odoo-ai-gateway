@@ -1,9 +1,11 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { parseEnv } from "node:util";
 
 import { describe, expect, it } from "vitest";
 
+import { loadConfigFromEnv } from "../../src/config/env.js";
 import { interpolateEnv, loadConfigFile, parseConfig } from "../../src/config/load.js";
 import { baseConfig } from "../helpers/gateway.js";
 
@@ -47,6 +49,40 @@ describe("config", () => {
     expect(config.auth.accountTokens).toEqual(["t"]);
     expect(config.providers.openai?.apiKey).toBe("k");
   });
+
+  it("reads numbers and booleans interpolated from env as strings", () => {
+    const dir = mkdtempSync(join(tmpdir(), "gw-"));
+    const path = join(dir, "gateway.config.yaml");
+    writeFileSync(
+      path,
+      [
+        "server: { port: '${PORT}', completionTimeoutSeconds: '${TIMEOUT:-90.5}', maxBodyBytes: '${MAX_BODY}' }",
+        "auth: { allowAnyAccountToken: '${ALLOW_ANY}' }",
+        "webhook: { maxAttempts: '${ATTEMPTS}', initialBackoffMs: '0', timeoutSeconds: '30' }",
+        "providers:",
+        "  openai: { apiKey: k }",
+        "routing:",
+        "  default: { provider: openai, model: m, maxOutputTokens: '${MAX_OUT}', capabilities: { tools: '${TOOLS}', schema: 'No' } }",
+      ].join("\n"),
+    );
+    const config = loadConfigFile(path, { PORT: "9000", MAX_BODY: "1024", ALLOW_ANY: "TRUE", ATTEMPTS: "2", MAX_OUT: "4096", TOOLS: "1" });
+    expect(config.server).toMatchObject({ port: 9000, completionTimeoutSeconds: 90.5, maxBodyBytes: 1024 });
+    expect(config.auth.allowAnyAccountToken).toBe(true);
+    expect(config.webhook).toMatchObject({ maxAttempts: 2, initialBackoffMs: 0, timeoutSeconds: 30 });
+    expect(config.routing.default).toMatchObject({ maxOutputTokens: 4096, capabilities: { tools: true, schema: false } });
+    for (const [value, expected] of [["false", false], ["0", false], ["no", false], ["yes", true]] as const) {
+      expect(parseConfig(baseConfig({ auth: { accountTokens: ["t"], allowAnyAccountToken: value } })).auth.allowAnyAccountToken).toBe(expected);
+    }
+  });
+
+  it("rejects strings that are not numbers or booleans", () => {
+    expect(() => parseConfig(baseConfig({ server: { port: "abc" } }))).toThrow(/server\.port: Invalid input: expected number, received string/);
+    expect(() => parseConfig(baseConfig({ server: { port: "" } }))).toThrow(/server\.port/);
+    expect(() => parseConfig(baseConfig({ server: { port: "80.5" } }))).toThrow(/server\.port/);
+    expect(() => parseConfig(baseConfig({ auth: { accountTokens: ["t"], allowAnyAccountToken: "maybe" } }))).toThrow(
+      /auth\.allowAnyAccountToken: Invalid input: expected boolean, received string/,
+    );
+  });
 });
 
 describe("gateway.config.example.yaml", () => {
@@ -63,5 +99,15 @@ describe("gateway.config.example.yaml", () => {
     expect(config.routing.usages["agent:ai_website.ai_agent_website_builder"]).toMatchObject({ provider: "claude" });
     expect(config.routing.routes["1/get_embeddings"]).toMatchObject({ model: "text-embedding-3-small" });
     expect(config.tiers.map((tier) => tier.name)).toEqual(["fast", "balanced", "deep"]);
+  });
+});
+
+describe("gateway.env.example", () => {
+  it("is a valid configuration", () => {
+    const env = parseEnv(readFileSync(join(import.meta.dirname, "../../gateway.env.example"), "utf8"));
+    const config = loadConfigFromEnv(env);
+    expect(config.providers.openrouter?.baseUrl).toMatch(/^https?:/);
+    expect(config.tiers).toHaveLength(2);
+    expect(config.routing.routes["1/get_embeddings"]).toBeDefined();
   });
 });
