@@ -52,7 +52,9 @@ function json(value: string, variable: string): unknown {
   try {
     return JSON.parse(value);
   } catch (error) {
-    throw new Error(`${variable}: invalid JSON (${(error as Error).message})`);
+    // The parser's message quotes the input, which may hold a secret (headers): keep only the position.
+    const position = /position \d+/.exec((error as Error).message)?.[0];
+    throw new Error(`${variable}: invalid JSON${position ? ` at ${position}` : ""}`);
   }
 }
 
@@ -111,7 +113,15 @@ export function configFromEnv(env: Env = process.env): GatewayConfigInput {
     providers[name] = defined({ apiKey, baseUrl, headers: jsonVariable(prefix + PROVIDER_FIELDS.headers) });
   }
 
-  const tiers = (list(read(env, "GATEWAY_TIERS")) ?? []).map((name) => {
+  const tierNames = list(read(env, "GATEWAY_TIERS")) ?? [];
+  const tierVariables = new Map<string, string>();
+  for (const name of tierNames) {
+    if (!/^[a-z0-9_-]+$/i.test(name)) throw new Error(`GATEWAY_TIERS: tier name "${name}" may only hold letters, digits, "-" and "_"`);
+    const other = tierVariables.get(tierVariable(name));
+    if (other !== undefined) throw new Error(`GATEWAY_TIERS: tiers "${other}" and "${name}" both read ${tierVariable(name)}`);
+    tierVariables.set(tierVariable(name), name);
+  }
+  const tiers = tierNames.map((name) => {
     const variable = tierVariable(name);
     const target = entry(variable);
     if (target === undefined) throw new Error(`GATEWAY_TIERS lists "${name}", but ${variable} is not set`);
@@ -173,8 +183,8 @@ function variableFor(path: string, tierNames: string[]): string | undefined {
       if (key === "default" || key === "agent") return `GATEWAY_ROUTE_${key.toUpperCase()}`;
       if (key === "usages") return "GATEWAY_USAGES";
       if (key === "features") return FEATURES[field as keyof typeof FEATURES];
-      // Route keys hold a "/" but no ".".
-      const route = ROUTES.find((candidate) => path.startsWith(`routing.routes.${candidate}`));
+      // Route keys hold a "/" but no ".": the route is everything up to the next "." (one prefixes another).
+      const route = ROUTES.find((candidate) => path === `routing.routes.${candidate}` || path.startsWith(`routing.routes.${candidate}.`));
       return route && routeVariable(route);
     }
   }

@@ -79,6 +79,10 @@ describe("config", () => {
     expect(() => parseConfig(baseConfig({ server: { port: "abc" } }))).toThrow(/server\.port: Invalid input: expected number, received string/);
     expect(() => parseConfig(baseConfig({ server: { port: "" } }))).toThrow(/server\.port/);
     expect(() => parseConfig(baseConfig({ server: { port: "80.5" } }))).toThrow(/server\.port/);
+    for (const port of ["0x10", "1e3", "0b1", "Infinity", "8080abc"]) {
+      expect(() => parseConfig(baseConfig({ server: { port } })), port).toThrow(/server\.port: Invalid input: expected number, received string/);
+    }
+    expect(parseConfig(baseConfig({ server: { port: " 8081 ", completionTimeoutSeconds: "0.5" } })).server).toMatchObject({ port: 8081, completionTimeoutSeconds: 0.5 });
     expect(() => parseConfig(baseConfig({ auth: { accountTokens: ["t"], allowAnyAccountToken: "maybe" } }))).toThrow(
       /auth\.allowAnyAccountToken: Invalid input: expected boolean, received string/,
     );

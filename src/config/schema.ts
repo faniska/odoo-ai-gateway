@@ -11,8 +11,10 @@ export const featureSchema = z.enum(FEATURES);
  * string for a number field, and true/false/1/0/yes/no for a boolean one. Anything else reaches the
  * inner schema unchanged and fails with its usual message (no `z.coerce.boolean`: "false" is truthy).
  */
+const DECIMAL = /^\s*-?\d+(\.\d+)?\s*$/;
 function numeric<T extends z.ZodType<number>>(schema: T) {
-  const toNumber = (value: unknown) => (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value)) ? Number(value) : value);
+  // Plain decimals only: Number() would also take "0x10", "1e3", "0b1".
+  const toNumber = (value: unknown) => (typeof value === "string" && DECIMAL.test(value) ? Number(value) : value);
   return z.preprocess(toNumber, schema) as unknown as z.ZodType<z.output<T>, z.input<T> | string>;
 }
 

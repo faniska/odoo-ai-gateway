@@ -163,6 +163,24 @@ describe("configFromEnv errors", () => {
     expect(() => configFromEnv({ ...minimal, GATEWAY_ROUTE_GET_EMBEDDINGS: '{"provider": ' })).toThrow(/GATEWAY_ROUTE_GET_EMBEDDINGS/);
   });
 
+  it("never repeats the invalid JSON text", () => {
+    let message = "";
+    try {
+      configFromEnv({ ...minimal, GATEWAY_PROVIDER_OPENAI_HEADERS: '{"X":sk-SECRET}' });
+    } catch (error) {
+      message = (error as Error).message;
+      expect((error as Error).cause).toBeUndefined();
+    }
+    expect(message).toMatch(/^GATEWAY_PROVIDER_OPENAI_HEADERS: invalid JSON/);
+    expect(message).not.toContain("sk-SECRET");
+  });
+
+  it("rejects tier names that cannot map to a variable, or map to the same one", () => {
+    expect(() => configFromEnv({ ...minimal, GATEWAY_TIERS: "fast.v2", "GATEWAY_TIER_FAST.V2": "openai:m" })).toThrow(/GATEWAY_TIERS.*fast\.v2/);
+    expect(() => configFromEnv({ ...minimal, GATEWAY_TIERS: "Fast,fast", GATEWAY_TIER_FAST: "openai:m" })).toThrow(/GATEWAY_TIERS.*GATEWAY_TIER_FAST/);
+    expect(() => configFromEnv({ ...minimal, GATEWAY_TIERS: "deep-think,deep_think", GATEWAY_TIER_DEEP_THINK: "openai:m" })).toThrow(/GATEWAY_TIERS/);
+  });
+
   it("requires GATEWAY_ROUTE_DEFAULT", () => {
     expect(() => configFromEnv({ GATEWAY_PROVIDER_OPENAI_API_KEY: "k" })).toThrow(/GATEWAY_ROUTE_DEFAULT/);
   });
@@ -177,6 +195,12 @@ describe("configFromEnv errors", () => {
     expect(() => loadConfigFromEnv({ ...minimal, GATEWAY_PORT: "abc" })).toThrow(/server\.port \(GATEWAY_PORT\)/);
     expect(() => loadConfigFromEnv({ ...minimal, GATEWAY_TIERS: "fast", GATEWAY_TIER_FAST: "mistral:m" })).toThrow(/GATEWAY_TIER_FAST/);
     expect(() => loadConfigFromEnv({ ...minimal, GATEWAY_USAGES: '{"x": "nope"}' })).toThrow(/routing\.usages\.x \(GATEWAY_USAGES\): unknown tier "nope"/);
+    expect(() => loadConfigFromEnv({ ...minimal, GATEWAY_ROUTE_GET_COMPLETIONS_SYNC: "nope" })).toThrow(
+      /routing\.routes\.1\/get_completions_sync \(GATEWAY_ROUTE_GET_COMPLETIONS_SYNC\): unknown tier "nope"/,
+    );
+    expect(() => loadConfigFromEnv({ ...minimal, GATEWAY_ROUTE_GET_COMPLETIONS: "openai:" })).toThrow(
+      /routing\.routes\.1\/get_completions\.model \(GATEWAY_ROUTE_GET_COMPLETIONS\)/,
+    );
   });
 });
 
