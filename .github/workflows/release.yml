@@ -6,9 +6,6 @@ on:
   release:
     types: [published]
 
-env:
-  IMAGE: ghcr.io/kay-g2/odoo-ai-gateway
-
 jobs:
   # Keeps a release PR up to date from the Conventional Commits on main. Merging it creates the
   # tag and the GitHub release, and publish below runs in the same workflow run.
@@ -37,9 +34,13 @@ jobs:
       packages: write
     steps:
       - id: tag
-        run: echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          # The repository's own registry; image names must be lowercase.
+          echo "image=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
         env:
           TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || needs.release-please.outputs.tag_name }}
+          REPOSITORY: ${{ github.repository }}
       # Build the commit the tag points at, not the head of main.
       - uses: actions/checkout@v7
         with:
@@ -55,7 +56,7 @@ jobs:
       - uses: docker/metadata-action@v6
         id: meta
         with:
-          images: ${{ env.IMAGE }}
+          images: ${{ steps.tag.outputs.image }}
           tags: |
             type=semver,pattern={{version}},value=${{ steps.tag.outputs.tag }}
             type=semver,pattern={{major}}.{{minor}},value=${{ steps.tag.outputs.tag }}
