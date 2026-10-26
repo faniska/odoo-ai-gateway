@@ -17,6 +17,9 @@ import { createAdapters } from "./providers/index.js";
 const logger = createJsonLogger((process.env.LOG_LEVEL as LogLevel | undefined) ?? "info");
 const source = configSource(process.env, existsSync);
 const config = "path" in source ? loadConfigFile(source.path) : loadConfigFromEnv();
+if ("path" in source && process.env.GATEWAY_ROUTE_DEFAULT?.trim()) {
+  logger.warn("a config file is in use: the GATEWAY_* configuration variables are ignored", { config: source.path });
+}
 
 const http = createHttpClient(
   Math.max(config.server.completionTimeoutSeconds, config.server.requestTimeoutSeconds, config.webhook.timeoutSeconds),
