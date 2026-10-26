@@ -48,7 +48,7 @@ docker compose up -d
 curl localhost:8080/health    # {"status":"ok"}
 ```
 
-`GATEWAY_PORT=18080 docker compose up -d` publishes it on another port. The image is
+`HOST_PORT=18080 docker compose up -d` publishes it on another port. The image is
 `ghcr.io/kay-g2/odoo-ai-gateway` (tags `X.Y.Z`, `X.Y` and `latest`, linux/amd64 and linux/arm64).
 To build it yourself: `docker build -t odoo-ai-gateway .`, then mount your config at
 `/app/gateway.config.yaml` or set `ODOO_AI_GATEWAY_CONFIG`.
@@ -59,23 +59,28 @@ Without a config file, the gateway builds its configuration from `GATEWAY_*` var
 server needs only an env file next to the image. A config file still wins when present
 (`ODOO_AI_GATEWAY_CONFIG`, or `gateway.config.yaml` / `.yml` / `.json` in the working directory);
 without one, `GATEWAY_ROUTE_DEFAULT` is required. [`gateway.env.example`](gateway.env.example)
-lists every variable with a working minimal example:
+lists every variable with a working minimal example. Environment configuration is built into this
+fork's image, `ghcr.io/faniska/odoo-ai-gateway`: tag `edge` (the head of `main`) until a release,
+then the version tag.
 
 ```bash
 cp gateway.env.example gateway.env    # set the tokens, keys and base URLs
-docker run -d --name odoo-ai-gateway --env-file gateway.env -p 8080:8080 ghcr.io/kay-g2/odoo-ai-gateway
+docker run -d --name odoo-ai-gateway --env-file gateway.env -p 8080:8080 ghcr.io/faniska/odoo-ai-gateway:edge
 ```
 
 ```yaml
 services:
   gateway:
-    image: ghcr.io/kay-g2/odoo-ai-gateway:latest
+    image: ghcr.io/faniska/odoo-ai-gateway:edge
     restart: unless-stopped
     env_file: gateway.env
     ports:
       - "8080:8080"
     stop_grace_period: 25m
 ```
+
+The first GHCR package of a repository is private: run `docker login ghcr.io` on the server, or make
+the package public in its GitHub settings.
 
 Each config field has its variable: `GATEWAY_PORT`, `GATEWAY_ACCOUNT_TOKENS` (comma-separated),
 `GATEWAY_PROVIDER_<NAME>_API_KEY` / `_BASE_URL` / `_HEADERS` (a provider exists only when its key
@@ -84,7 +89,8 @@ is set), `GATEWAY_TIERS=fast,deep` with `GATEWAY_TIER_FAST` and `GATEWAY_TIER_DE
 (`1/get_embeddings` → `GATEWAY_ROUTE_GET_EMBEDDINGS`), and `GATEWAY_USAGES` as one JSON object
 (usage keys such as `agent:ai_website.x` cannot be variable names). An entry is `provider:model`,
 `provider:model@effort` (split at the first `:`, so `openrouter:z-ai/glm-5.2` works), a tier name,
-or a JSON object such as `{"provider": "openai", "model": "bge-m3", "name": "text-embedding-3-small"}`.
+or a JSON object such as `{"provider": "openai", "model": "text-embedding-3-small", "name": "embeddings-v1"}`
+(embedding models must return 1536-dimension vectors).
 Empty variables count as unset. Validation errors name the variable next to the config path.
 
 In a YAML config, `${VAR}` values are strings; numeric and boolean fields accept them

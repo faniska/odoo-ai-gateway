@@ -19,5 +19,6 @@ COPY package.json ./
 # The base image's unprivileged "node" user, by id so orchestrators can verify it is not root.
 USER 1000:1000
 EXPOSE 8080
-# Mount your config at /app/gateway.config.yaml or set ODOO_AI_GATEWAY_CONFIG.
+# Mount your config at /app/gateway.config.yaml or set ODOO_AI_GATEWAY_CONFIG. Without a config
+# file, the GATEWAY_* variables configure it (docker run --env-file, see gateway.env.example).
 CMD ["node", "dist/index.js"]
