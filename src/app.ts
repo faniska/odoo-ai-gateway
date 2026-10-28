@@ -27,7 +27,7 @@ import { TranscriptionService } from "./services/transcription.js";
 import { WebhookSender, checkWebhookUrl } from "./services/webhook.js";
 
 export const API_PREFIX = "/api/odoo_ai";
-export const VERSION = "0.1.0"; // x-release-please-version
+export const VERSION = "0.2.0"; // x-release-please-version
 const PUBLIC_ROUTE_MAX_BODY_BYTES = 64 * 1024;
 
 export interface AppDeps {

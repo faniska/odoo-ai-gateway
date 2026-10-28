@@ -1,6 +1,6 @@
 {
   "name": "odoo-ai-gateway",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Self-hosted, open source drop-in replacement for ai.api.odoo.com (Odoo 20 Enterprise AI) built on Hono. Routes each Odoo AI job to OpenAI, Grok, Claude, Gemini or OpenRouter.",
   "license": "MIT",
   "private": true,
