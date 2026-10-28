@@ -560,6 +560,66 @@ describe("OpenRouterAdapter.complete: web grounding", () => {
     expect((result.content[0] as { text: string }).text).toBe(`🚀🚀 Odoo 20 is out[WEB_SOURCE:${id}].`);
   });
 
+  it("sends z.ai's own web_search tool with web_search_api: zai, merging web_search_tool into it", async () => {
+    const { mock, adapter } = setup();
+    mock.reply(chat({ content: "Ok" }));
+    await adapter.complete(request({ webGrounding: true, options: { web_search_api: "zai" } }));
+    expect(mock.last.body.tools).toEqual([
+      { type: "web_search", web_search: { enable: true, search_engine: "search-prime", search_result: true } },
+    ]);
+    expect(mock.last.body).not.toHaveProperty("web_search_api");
+
+    mock.reply(chat({ content: "Ok" }));
+    await adapter.complete(
+      request({ webGrounding: true, options: { web_search_api: "zai", web_search_tool: { search_engine: "search-pro", count: 5 } } }),
+    );
+    expect(mock.last.body.tools).toEqual([
+      { type: "web_search", web_search: { enable: true, search_engine: "search-pro", search_result: true, count: 5 } },
+    ]);
+  });
+
+  it("turns z.ai web_search results into markers + sources: ref markers in place, the rest appended", async () => {
+    const { mock, adapter } = setup();
+    mock.reply(
+      chat(
+        { content: "Odoo 20 ships AI agents【ref_1】. Pricing is unchanged [ref_2].\n\nSources: [1] Odoo 20" },
+        {
+          web_search: [
+            { refer: "ref_1", title: "Odoo 20 release", link: "https://www.odoo.com/blog/odoo-20", content: "…", publish_date: "Oct 1, 2026" },
+            { refer: "ref_2", title: "Pricing", link: "https://www.odoo.com/pricing", content: "…" },
+            { refer: "ref_3", title: "Odoo - Wikipedia", link: "https://en.wikipedia.org/wiki/Odoo", content: "…" },
+            // Same page twice, and a result without a link: neither adds a source.
+            { refer: "ref_4", title: "Odoo 20 again", link: "https://www.odoo.com/blog/odoo-20", content: "…" },
+            { refer: "ref_5", title: "No link", content: "…" },
+          ],
+        },
+      ),
+    );
+    const result = await adapter.complete(request({ webGrounding: true, options: { web_search_api: "zai" } }));
+    const blog = webSourceId("https://www.odoo.com/blog/odoo-20");
+    const pricing = webSourceId("https://www.odoo.com/pricing");
+    const wiki = webSourceId("https://en.wikipedia.org/wiki/Odoo");
+    expect(result.content).toEqual([
+      {
+        type: "text",
+        text: `Odoo 20 ships AI agents[WEB_SOURCE:${blog}]. Pricing is unchanged[WEB_SOURCE:${pricing}].\n\nSources: [1] Odoo 20 [WEB_SOURCE:${wiki}]`,
+        sources: {
+          [blog]: { url: "https://www.odoo.com/blog/odoo-20", source_name: "odoo.com" },
+          [pricing]: { url: "https://www.odoo.com/pricing", source_name: "odoo.com" },
+          [wiki]: { url: "https://en.wikipedia.org/wiki/Odoo", source_name: "en.wikipedia.org" },
+        },
+      },
+    ]);
+  });
+
+  it("ignores z.ai web_search results when web grounding was not requested", async () => {
+    const { mock, adapter } = setup();
+    mock.reply(chat({ content: "Plain answer [ref_1]." }, { web_search: [{ refer: "ref_1", title: "A", link: "https://a.example" }] }));
+    const result = await adapter.complete(request({ options: { web_search_api: "zai" } }));
+    expect(result.content).toEqual([{ type: "text", text: "Plain answer [ref_1]." }]);
+    expect(mock.last.body).not.toHaveProperty("tools");
+  });
+
   it("ignores annotations when web grounding was not requested", async () => {
     const { mock, adapter } = setup();
     mock.reply(chat({ content: "Plain answer.", annotations: [{ type: "url_citation", url_citation: { url: "https://a.example", start_index: 0, end_index: 5 } }] }));

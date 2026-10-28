@@ -14,6 +14,9 @@
  * - Endpoints without structured-output support silently ignore `response_format` unless
  *   `provider.require_parameters` is set.
  * - Web citations are nested: `annotations[] = {type: "url_citation", url_citation: {...}}`.
+ * - z.ai's GLM API speaks the same protocol but rejects `openrouter:web_search`; with
+ *   `web_search_api: "zai"` its own `web_search` tool is sent, and the pages it read come back in a
+ *   top-level `web_search` array, cited in the text (when at all) as `[ref_1]` or `【ref_1】`.
  *
  * `options` are declared in `OPENROUTER_OPTIONS` and applied by `mergeOptions`: any key not
  * declared there replaces the body field of that name (`null` removes it, e.g. `dimensions` for
@@ -85,6 +88,13 @@ interface ResponseMessage {
   reasoning_details?: unknown[] | null;
 }
 
+/** One page of z.ai's top-level `web_search` array. */
+interface SearchResult {
+  refer?: string;
+  title?: string;
+  link?: string;
+}
+
 interface ChatResponse {
   id?: string;
   model?: string;
@@ -94,6 +104,7 @@ interface ChatResponse {
     error?: { message?: string; code?: unknown };
   }>;
   usage?: Record<string, unknown>;
+  web_search?: SearchResult[] | null;
   error?: unknown;
 }
 
@@ -114,7 +125,14 @@ export const OPENROUTER_OPTIONS: OptionDeclarations = {
     merge: "adapter",
     gatewayKey: true,
     value: values.object,
-    doc: "`parameters` of the `openrouter:web_search` tool (`engine`, `max_results`...).",
+    doc: "`parameters` of the `openrouter:web_search` tool (`engine`, `max_results`...), or with `web_search_api: \"zai\"` merged into z.ai's `web_search` tool (`search_engine`, `count`...).",
+  },
+  web_search_api: {
+    operations: ["completion"],
+    merge: "adapter",
+    gatewayKey: true,
+    value: values.oneOf("openrouter", "zai"),
+    doc: "`\"zai\"` sends z.ai's own `web_search` tool (GLM API at `api.z.ai`, which rejects `openrouter:web_search`) and cites the pages it returns. Default: `\"openrouter\"`.",
   },
   provider: {
     operations: ["completion"],
@@ -314,6 +332,33 @@ function citationSpans(text: string, start: unknown, end: unknown, url: string):
  * Citations are snapped to the model's `[domain](url)` links (see `citationSpans`) so a link is
  * never left next to its own marker; citations that cannot be placed are appended at the end.
  */
+/**
+ * z.ai `web_search` results: a `[ref_1]` or `【ref_1】` the model wrote becomes the marker of that
+ * page, and the pages it did not cite are appended, so the caller still gets every source.
+ */
+function citeSearchResults(text: string, results: SearchResult[]): { text: string; sources: Record<string, WebSource> } {
+  const sources: Record<string, WebSource> = {};
+  const cite = (url: string, title?: string): string => {
+    const id = webSourceId(url);
+    sources[id] ??= { url, source_name: sourceName(url, title) };
+    return id;
+  };
+  const pages = results.filter((result): result is SearchResult & { link: string } => typeof result?.link === "string" && result.link !== "");
+  const byRef = new Map(pages.filter((page) => typeof page.refer === "string").map((page) => [page.refer!, page]));
+
+  let out = text.replace(/[ \t]*(?:【|\[)\^?(ref_\d+)(?:】|\])/g, (match, ref: string) => {
+    const page = byRef.get(ref);
+    return page ? `[WEB_SOURCE:${cite(page.link, page.title)}]` : match;
+  });
+  const trailing: string[] = [];
+  for (const page of pages) {
+    if (sources[webSourceId(page.link)]) continue;
+    trailing.push(`[WEB_SOURCE:${cite(page.link, page.title)}]`);
+  }
+  if (trailing.length) out = `${out.trimEnd()}${out.trim() ? " " : ""}${trailing.join("")}`;
+  return { text: out, sources };
+}
+
 function citeAnnotations(text: string, annotations: Annotation[]): { text: string; sources: Record<string, WebSource> } {
   const raw = annotations
     .filter((annotation) => annotation?.type === "url_citation")
@@ -399,9 +444,14 @@ export class OpenRouterAdapter extends BaseAdapter {
       function: { name: tool.name, description: tool.instructions, parameters: toolParameters(tool.schema) },
     }));
     if (request.webGrounding) {
-      // Server tool: OpenRouter runs the search when the model decides to.
       const parameters = objectOption(options, "web_search_tool");
-      tools.push({ type: "openrouter:web_search", ...(Object.keys(parameters).length ? { parameters } : {}) });
+      if (options.web_search_api === "zai") {
+        // z.ai searches before answering; `search_result` returns the pages it read.
+        tools.push({ type: "web_search", web_search: { enable: true, search_engine: "search-prime", search_result: true, ...parameters } });
+      } else {
+        // Server tool: OpenRouter runs the search when the model decides to.
+        tools.push({ type: "openrouter:web_search", ...(Object.keys(parameters).length ? { parameters } : {}) });
+      }
     }
     if (tools.length) body.tools = tools;
 
@@ -506,7 +556,9 @@ export class OpenRouterAdapter extends BaseAdapter {
     }
     if (text.trim()) {
       let sources: Record<string, WebSource> = {};
-      if (request.webGrounding && !request.schema && Array.isArray(message.annotations)) {
+      if (request.webGrounding && !request.schema && Array.isArray(response.web_search)) {
+        ({ text, sources } = citeSearchResults(text, response.web_search));
+      } else if (request.webGrounding && !request.schema && Array.isArray(message.annotations)) {
         ({ text, sources } = citeAnnotations(text, message.annotations));
       }
       content.push({ type: "text", text, ...(Object.keys(sources).length ? { sources } : {}) });

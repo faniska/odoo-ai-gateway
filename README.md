@@ -229,7 +229,7 @@ model accepts.
 | API used | Responses | Responses (+ Images, STT) | Messages | generateContent | Chat Completions |
 | Tools (`tool_call` / `tool_result`) | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Schema (structured output) | ✓ | ✓ | ✓ (not on Claude 3 / Opus 4.0 / Sonnet 4.0) | ✓ | ✓ (`require_parameters`) |
-| `web_grounding` (`[WEB_SOURCE:]` + `sources`) | `web_search` tool | `web_search` tool | `web_search` server tool | `googleSearch` | `openrouter:web_search` |
+| `web_grounding` (`[WEB_SOURCE:]` + `sources`) | `web_search` tool | `web_search` tool | `web_search` server tool | `googleSearch` | `openrouter:web_search`; z.ai's `web_search` with `web_search_api: "zai"` |
 | `web_grounding` + schema (`ai_field`) | ✓ | ✓ | ✗ (citations are incompatible with structured output) | Gemini 3+ | ✓ |
 | `image_generation` | `image_generation` tool | `/images/generations` (image models) | ✗ | `*-image` models | `modalities: [image, text]` |
 | Image / PDF / audio input | ✓ / ✓ / ✗ | jpeg-png / ✗ / ✗ | ✓ / ✓ / ✗ | ✓ / ✓ / ✓ | ✓ / ✓ / ✓ |
@@ -310,7 +310,8 @@ Grok image generation is the exception: the `/images/generations` body only take
 | gemini | `web_search_tool` | completion | an object | Merged into the `googleSearch` tool. |
 | gemini | `embedContentConfig` | embeddings | an object | Merged recursively into the adapter's `embedContentConfig`: each embedding request's config (`taskType`...). |
 | gemini | `embedding_prompt` | embeddings | true or false | Forces the task-prefix text format on or off (default: on for gemini-embedding-2, see Embeddings). |
-| openrouter | `web_search_tool` | completion | an object | `parameters` of the `openrouter:web_search` tool (`engine`, `max_results`...). |
+| openrouter | `web_search_tool` | completion | an object | `parameters` of the `openrouter:web_search` tool (`engine`, `max_results`...), or with `web_search_api: "zai"` merged into z.ai's `web_search` tool (`search_engine`, `count`...). |
+| openrouter | `web_search_api` | completion | "openrouter" or "zai" | `"zai"` sends z.ai's own `web_search` tool (GLM API at `api.z.ai`, which rejects `openrouter:web_search`) and cites the pages it returns. Default: `"openrouter"`. |
 | openrouter | `provider` | completion | an object | Merged recursively into the adapter's `provider`: provider routing preferences (`order`, `only`, `sort`...); a schema adds `require_parameters: true` first. |
 | openrouter | `image_config` | completion | an object | Extra image options (`image_size`...) for image generation; the request's aspect ratio wins. |
 | openrouter | `reasoning` | completion | an object | Merged over the translated effort (`exclude`...); a `max_tokens` budget replaces the effort. |
